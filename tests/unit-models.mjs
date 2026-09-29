@@ -44,6 +44,7 @@ describe("MODELS projection", () => {
 		assert.ok(find(models, "claude-opus-5"), "opus-5 present");
 		assert.ok(find(models, "claude-fable-5-1"), "fable-5-1 present");
 		assert.ok(find(models, "claude-haiku-4-5"), "haiku present");
+		assert.ok(find(models, "claude-sonnet-5-5"), "sonnet-5-5 present (pi-ai or catalog fallback)");
 	});
 
 	it("sorts newest generation first within each family", () => {
@@ -51,7 +52,8 @@ describe("MODELS projection", () => {
 			oneM("claude-opus-4-7"), oneM("claude-opus-5"),
 			oneM("claude-sonnet-5"), oneM("claude-opus-4-6"),
 		]);
-		assert.deepEqual(models.map((m) => m.id), ["claude-opus-5", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5"]);
+		// claude-sonnet-5-5 is the catalog fallback cloned from sonnet-5.
+		assert.deepEqual(models.map((m) => m.id), ["claude-opus-5", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5-5", "claude-sonnet-5"]);
 	});
 
 	it("keeps dated aliases from stealing shortcuts from bare ids", () => {
@@ -69,6 +71,25 @@ describe("MODELS projection", () => {
 		const withMap = () => mockPiAiModel("claude-sonnet-5", { thinkingLevelMap: { xhigh: "xhigh", max: "max" } });
 		const models = buildModels([withMap()]);
 		assert.deepEqual(find(models, "claude-sonnet-5")?.thinkingLevelMap, { xhigh: "xhigh", max: "max" });
+	});
+
+	it("adds claude-sonnet-5-5 cloned from sonnet-5 when pi-ai lacks it", () => {
+		const sonnet5 = mockPiAiModel("claude-sonnet-5", { maxTokens: 128000, thinkingLevelMap: { xhigh: "xhigh", max: "max" } });
+		const models = buildModels([sonnet5]);
+		assert.deepEqual(models.map((m) => m.id), ["claude-sonnet-5-5", "claude-sonnet-5"]);
+		const added = find(models, "claude-sonnet-5-5");
+		assert.equal(added.name, "Claude Sonnet 5.5");
+		assert.equal(added.maxTokens, 128000);
+		assert.deepEqual(added.thinkingLevelMap, { xhigh: "xhigh", max: "max" });
+		assert.equal(added.headers, undefined, "clone goes through the same projection");
+		assert.equal(resolveModel(models, "sonnet")?.id, "claude-sonnet-5-5");
+	});
+
+	it("prefers pi-ai's own entry over the fallback, and skips it without a sibling", () => {
+		const models = buildModels([mockPiAiModel("claude-sonnet-5"), mockPiAiModel("claude-sonnet-5-5", { name: "from pi-ai" })]);
+		assert.equal(models.filter((m) => m.id === "claude-sonnet-5-5").length, 1);
+		assert.equal(find(models, "claude-sonnet-5-5").name, "from pi-ai");
+		assert.equal(find(buildModels([mockPiAiModel("claude-haiku-4-5")]), "claude-sonnet-5-5"), undefined);
 	});
 
 	it("forwards undefined thinkingLevelMap unchanged (no fabricated defaults)", () => {
@@ -110,6 +131,12 @@ describe("Claude Code runtime policy", () => {
 
 	it("declared 200K maps to bare id", () => {
 		assert.deepEqual(resolveClaudeCodeRuntimeModel(mockPiAiModel("claude-haiku-4-5"), PRO), { cliModelId: "claude-haiku-4-5", contextWindow: 200000 });
+	});
+
+	it("sonnet-5-5 1M is Max-only until measured on Pro, even with extra usage", () => {
+		assert.deepEqual(resolveClaudeCodeRuntimeModel(oneM("claude-sonnet-5-5"), MAX), { cliModelId: "claude-sonnet-5-5[1m]", contextWindow: 1000000 });
+		assert.deepEqual(resolveClaudeCodeRuntimeModel(oneM("claude-sonnet-5-5"), PRO), { cliModelId: "claude-sonnet-5-5", contextWindow: 200000 });
+		assert.deepEqual(resolveClaudeCodeRuntimeModel(oneM("claude-sonnet-5-5"), EXTRA), { cliModelId: "claude-sonnet-5-5", contextWindow: 200000 });
 	});
 
 	it("measured exception: opus-4-6 1M is plan-gated", () => {

@@ -1,6 +1,7 @@
 // Model selection + display-order policy for the model picker. The picker is
 // driven by pi-ai's anthropic catalog: models appear (and disappear) with it,
-// no per-model code here. Extracted from index.ts so tests can import without
+// no per-model code here beyond CATALOG_FALLBACKS for models the SDK serves
+// before pi-ai lists them. Extracted from index.ts so tests can import without
 // activating the extension.
 // `resolveModel` resolves family shortcuts (opus/sonnet/fable) to the newest
 // matching id regardless of sort order; sort order only drives picker display.
@@ -29,8 +30,27 @@ function versionRank(id: string): { family: string; tuple: [number, number] } {
 	return { family, tuple: [Number(major) || 0, Number(minor) || 0] };
 }
 
+// Models the Agent SDK serves before pi-ai's catalog lists them, cloned from
+// the nearest cataloged sibling. pi-ai's own entry wins once it ships, so an
+// entry here can be deleted when the minimum pi-ai version includes it.
+const CATALOG_FALLBACKS = [
+	// Agent SDK 0.3.284; not in pi-ai 0.87.1. Only its context window and max
+	// output were measured; thinking levels and input types are assumed.
+	{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", cloneOf: "claude-sonnet-5" },
+];
+
+function withCatalogFallbacks<T extends { id: string }>(piAiModels: T[]): T[] {
+	const added: T[] = [];
+	for (const { id, name, cloneOf } of CATALOG_FALLBACKS) {
+		if (piAiModels.some((m) => m.id === id)) continue;
+		const sibling = piAiModels.find((m) => m.id === cloneOf);
+		if (sibling) added.push({ ...sibling, id, name });
+	}
+	return [...piAiModels, ...added];
+}
+
 export function buildModels<T extends { id: string; [key: string]: any }>(piAiModels: T[]) {
-	return piAiModels
+	return withCatalogFallbacks(piAiModels)
 		.filter((m) => typeof m.id === "string" && !isDatedAlias(m.id))
 		.sort((a, b) => {
 			const fa = FAMILY_ORDER.indexOf(versionRank(a.id).family);
@@ -95,6 +115,10 @@ const PLAN_GATED_ONE_M: Record<string, (settings: LongContextSettings) => boolea
 	"claude-opus-4-6": (settings) => settings.plan === "max" || settings.longContextExtraUsage,
 	// [1m] measured 1M with extra usage only.
 	"claude-sonnet-4-6": (settings) => settings.longContextExtraUsage,
+	// Bare and [1m] measured 1M on Max; Pro unmeasured. Extra usage is not an
+	// escape hatch: if Pro meters it (as for sonnet-4-6), that setting is what
+	// would bill it. Move to MEASURED_ONE_M once a Pro run serves 1M.
+	"claude-sonnet-5-5": (settings) => settings.plan === "max",
 };
 
 export function resolveClaudeCodeRuntimeModel(

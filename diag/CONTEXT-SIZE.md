@@ -30,6 +30,15 @@ The Opus 5.5 rows come from a later run, same options and auth:
   `overageStatus: "rejected"`, `overageDisabledReason: "org_level_disabled"`
 - Date: 2026-09-23
 
+The Sonnet 5.5 rows, and the Max `claude-sonnet-5[1m]` cell, come from a
+one-off run of the same `query()` options that was not saved to
+`.test-output/`:
+
+- Claude Agent SDK 0.3.284 (bundled Claude Code 2.1.284)
+- Plan: Max 20x, overage rejected at the org level by the run's rate-limit
+  event. Filing the rows under credits off is an inference from that event.
+- Date: 2026-09-28
+
 ## Served context windows
 
 Four conditions, each run with the probe above. Values are tokens; `1M` =
@@ -51,15 +60,18 @@ the footnote below the table).
 | `claude-opus-4-6[1m]`    | 429              | 1M              | 1M               | 1M              |
 | `claude-fable-5`          | 200K             | —               | —                | —               |
 | `claude-fable-5[1m]`     | 1M               | —               | —                | —               |
+| `claude-sonnet-5-5`       | —                | —               | 1M               | —               |
+| `claude-sonnet-5-5[1m]`  | —                | —               | 1M               | —               |
 | `claude-sonnet-5`         | 200K             | —               | —                | —               |
-| `claude-sonnet-5[1m]`    | 1M               | —               | —                | —               |
+| `claude-sonnet-5[1m]`    | 1M               | —               | 1M               | —               |
 | `claude-sonnet-4-6`       | 200K             | 200K            | 200K             | 200K            |
 | `claude-sonnet-4-6[1m]`  | 429              | 1M              | 429              | 1M              |
 | `claude-haiku-4-5`        | 200K             | 200K            | 200K             | 200K            |
 | `claude-haiku-4-5[1m]`   | 429†             | 400             | 400              | 400             |
 
 Raw runs: `.test-output/context-size/{pro,max}-2026-06-26T21-*.json`,
-Opus 5.5 `.test-output/context-size/max-2026-09-23T13-50-08-107Z.json`
+Opus 5.5 `.test-output/context-size/max-2026-09-23T13-50-08-107Z.json`.
+Sonnet 5.5: not saved (see [Environment](#environment)).
 
 `—` = not yet tested in that condition. Max-credits-on matched Pro-credits-on
 for every cell tested in both (shown for completeness). Opus 5.5 served 1M from
@@ -70,6 +82,10 @@ there. The bridge still requests `[1m]`, which is what keeps its
 unmeasured; its 1M there rests on [Anthropic's documentation](https://code.claude.com/docs/en/model-config#extended-context)
 for Opus 4.7 and later (1M by default on the Anthropic API, including Pro),
 **not an SDK subscription/OAuth measurement**.
+
+Sonnet 5.5 has the same shape on Max with credits off: 1M from both the bare
+id and `[1m]`, with 128K max output. On Pro it is unmeasured, so the bridge
+gates its `[1m]` to `plan: "max"` rather than listing it in `MEASURED_ONE_M`.
 
 † **Inferred, not directly measured.** The Pro-credits-off run predates
 error-field capture; its three rejected `[1m]` rows have no recorded HTTP status
@@ -125,7 +141,8 @@ zero model tokens).
 ## Findings
 
 1. **The `[1m]` suffix is the only reliable way to request 1M via the SDK.**
-   Bare model ids serve 200K (except the anomalous `opus-4-7`). The interactive
+   Bare model ids serve 200K (except the anomalous `opus-4-7`, and on Max
+   `opus-5-5` and `sonnet-5-5`). The interactive
    Claude Code CLI auto-selects `[1m]` for Opus on Max/Team/Enterprise, but the
    SDK does not.
 2. **`opus-4-7` bare serves 1M everywhere** — stable across runs. Unexplained.
